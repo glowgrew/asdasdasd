@@ -23,10 +23,12 @@ long matrixSize = 10; // N
 int dbMode = 4; // режим считывания конфигурационного файла
 LONG wWidth = 320; // ширина окна
 LONG wHeight = 240; // высота окна
-int** matrix;
+LPTSTR matrix;
+UINT syncMsg = RegisterWindowMessage("Game Field Update");
 
 const TCHAR szWinClass[] = _T("Painter App Window");
 const TCHAR szWinName[] = _T("Painter App Window");
+const TCHAR szSharedMemoryName[] = _T("Shared Painter App Memory");
 
 HWND hwnd; /* This is the handle for our window */
 HBRUSH hBrush; /* Current brush */
@@ -41,7 +43,7 @@ void RunNotepad() {
 
     puts("Starting Notepad...");
     CreateProcess(_T("C:\\Windows\\Notepad.exe"),
-                  NULL, NULL, NULL, FALSE, 0, NULL, NULL, &sInfo, &pInfo);
+                  nullptr, nullptr, nullptr, FALSE, 0, nullptr, nullptr, &sInfo, &pInfo);
 }
 
 /*  This function is called by the Windows function DispatchMessage()  */
@@ -62,20 +64,21 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
         case WM_LBUTTONUP: {
             x = GET_X_LPARAM(lParam);
             y = GET_Y_LPARAM(lParam);
-            if (matrix[x / (cWidth / matrixSize)][y / (cHeight / matrixSize)] == 0) {
-                matrix[x / (cWidth / matrixSize)][y / (cHeight / matrixSize)] = 1;
+            if (matrix[x / (cWidth / matrixSize) * matrixSize + y / (cHeight / matrixSize)] == 0) {
+                matrix[x / (cWidth / matrixSize) * matrixSize + y / (cHeight / matrixSize)] = 1;
             }
-
-            InvalidateRect(hwnd, NULL, TRUE);
+            PostMessage(HWND_BROADCAST, syncMsg, NULL, NULL);
+            // InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         }
         case WM_RBUTTONUP: {
             x = GET_X_LPARAM(lParam);
             y = GET_Y_LPARAM(lParam);
-            if (matrix[x / (cWidth / matrixSize)][y / (cHeight / matrixSize)] == 0) {
-                matrix[x / (cWidth / matrixSize)][y / (cHeight / matrixSize)] = 2;
+            if (matrix[x / (cWidth / matrixSize) * matrixSize + y / (cHeight / matrixSize)] == 0) {
+                matrix[x / (cWidth / matrixSize) * matrixSize + y / (cHeight / matrixSize)] = 2;
             }
-            InvalidateRect(hwnd, NULL, TRUE);
+            PostMessage(HWND_BROADCAST, syncMsg, NULL, NULL);
+            // InvalidateRect(hwnd, NULL, TRUE);
             return 0;
         }
         case WM_MOUSEWHEEL: {
@@ -98,10 +101,10 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
                 else if (b255 && g0 && !r255) lineColor.r += CLRCNG;
                 else if (r255 && !b0 && g0) lineColor.b -= CLRCNG;
             }
-            InvalidateRect(hwnd, NULL, TRUE);
+            InvalidateRect(hwnd, nullptr, TRUE);
             return 0;
         }
-        case WM_KEYDOWN:
+        case WM_KEYDOWN: {
             switch (wParam) {
                 case 67:
                     if (GetKeyState(VK_SHIFT) & KEY_SHIFTED) {
@@ -109,28 +112,32 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
                     }
                     return 0;
                 case 81:
-                case VK_ESCAPE:
+                case VK_ESCAPE: {
                     PostQuitMessage(0);
                     return 0;
-                case VK_RETURN:
+                }
+                case VK_RETURN: {
                     bgColor = {(uint8_t)(rand() % 256), (uint8_t)(rand() % 256), (uint8_t)(rand() % 256)};
                     hBrush = CreateSolidBrush(RGB(bgColor.r, bgColor.g, bgColor.b));
                     hTempBrush = (HBRUSH)SetClassLongPtr(hwnd, GCLP_HBRBACKGROUND, (LONG_PTR)hBrush);
                     DeleteObject(hTempBrush);
-                    InvalidateRect(hwnd, NULL, TRUE);
+                    InvalidateRect(hwnd, nullptr, TRUE);
                     return 0;
+                }
             }
+        }
         case WM_SIZE: {
             GetWindowRect(hwnd, &w);
             wWidth = w.right - w.left;
             wHeight = w.bottom - w.top;
-            InvalidateRect(hwnd, NULL, TRUE);
+            InvalidateRect(hwnd, nullptr, TRUE);
             return 0;
         }
-        case WM_CLOSE:
+        case WM_CLOSE: {
             PostQuitMessage(0);
             return 0;
-        case WM_PAINT:
+        }
+        case WM_PAINT: {
             hdc = BeginPaint(hwnd, &ps);
             RECT wSize;
             GetClientRect(hwnd, &wSize);
@@ -138,27 +145,27 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
             HPEN hPen = CreatePen(PS_SOLID, NULL, COLORREF(RGB(lineColor.r, lineColor.g, lineColor.b)));
             HPEN hDefaultPen = (HPEN)SelectObject(hdc, hPen);
             for (long i = 0; i < matrixSize; i++) {
-                MoveToEx(hdc, i * cWidth / matrixSize, 0, NULL);
+                MoveToEx(hdc, i * cWidth / matrixSize, 0, nullptr);
                 LineTo(hdc, i * cWidth / matrixSize, cHeight);
-                MoveToEx(hdc, 0, i * cHeight / matrixSize, NULL);
+                MoveToEx(hdc, 0, i * cHeight / matrixSize, nullptr);
                 LineTo(hdc, cWidth, i * cHeight / matrixSize);
             }
             hPen = (HPEN)SelectObject(hdc, hDefaultPen);
             DeleteObject(hPen);
 
-            hPen = CreatePen(PS_SOLID, NULL, COLORREF(RGB(0, 0, 0)));
+            hPen = CreatePen(PS_SOLID, NULL, RGB(0, 0, 0));
 
             HBRUSH hDefaultBrush = (HBRUSH)SelectObject(hdc, hBrush);
             for (int i = 0; i < matrixSize; i++) {
                 for (int j = 0; j < matrixSize; j++) {
-                    if (matrix[i][j] == 1) {
+                    if (matrix[i * matrixSize + j] == 1) {
                         Ellipse(hdc, i * cWidth / matrixSize, j * cHeight / matrixSize, (i + 1) * cWidth / matrixSize,
                                 (j + 1) * cHeight / matrixSize);
                     }
-                    if (matrix[i][j] == 2) {
-                        MoveToEx(hdc, i * cWidth / matrixSize, j * cHeight / matrixSize, NULL);
+                    if (matrix[i * matrixSize + j] == 2) {
+                        MoveToEx(hdc, i * cWidth / matrixSize, j * cHeight / matrixSize, nullptr);
                         LineTo(hdc, (i + 1) * cWidth / matrixSize, (j + 1) * cHeight / matrixSize);
-                        MoveToEx(hdc, i * cWidth / matrixSize, (j + 1) * cHeight / matrixSize, NULL);
+                        MoveToEx(hdc, i * cWidth / matrixSize, (j + 1) * cHeight / matrixSize, nullptr);
                         LineTo(hdc, (i + 1) * cWidth / matrixSize, j * cHeight / matrixSize);
                     }
                 }
@@ -169,6 +176,11 @@ LRESULT CALLBACK WindowProcedure(HWND hwnd, UINT message, WPARAM wParam, LPARAM 
 
             EndPaint(hwnd, &ps);
             return 0;
+        }
+        default: {
+            if (message == syncMsg) InvalidateRect(hwnd, nullptr, TRUE);
+            break;
+        }
     }
 
     /* for messages that we don't deal with */
@@ -210,7 +222,7 @@ void write_fopen() {
     std::cout << "Writing using fopen" << std::endl;
     FILE* file;
     fopen_s(&file, FILENAME, "w");
-    if (file == NULL) {
+    if (file == nullptr) {
         std::cerr << "Error opening file for writing." << std::endl;
         return;
     }
@@ -222,7 +234,7 @@ void write_fopen() {
 void write_native() {
     std::cout << "Writing using native WinAPI" << std::endl;
 
-    HANDLE hFile = CreateFile(FILENAME, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE hFile = CreateFile(FILENAME, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) {
         std::cerr << "Error opening file for writing." << std::endl;
         return;
@@ -233,7 +245,7 @@ void write_native() {
               bgColor.r, bgColor.g, bgColor.b, lineColor.r, lineColor.g, lineColor.b);
 
     DWORD bytesWritten;
-    if (!WriteFile(hFile, buffer, strlen(buffer), &bytesWritten, NULL)) {
+    if (!WriteFile(hFile, buffer, strlen(buffer), &bytesWritten, nullptr)) {
         std::cerr << "Error writing file." << std::endl;
     }
 
@@ -243,7 +255,7 @@ void write_native() {
 void read_fopen() {
     std::cout << "Reading using fopen" << std::endl;
     FILE* file = fopen(FILENAME, "r");
-    if (file == NULL) {
+    if (file == nullptr) {
         return;
     }
     fscanf(file, "%ld\n%ld\n%ld\n%d\n%d\n%d\n%d\n%d\n%d", &matrixSize, &wWidth, &wHeight,
@@ -254,7 +266,7 @@ void read_fopen() {
 void read_native() {
     std::cout << "Reading using native WinAPI" << std::endl;
 
-    HANDLE hFile = CreateFile(FILENAME, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE hFile = CreateFile(FILENAME, GENERIC_READ, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (hFile == INVALID_HANDLE_VALUE) {
         return;
     }
@@ -262,7 +274,7 @@ void read_native() {
     DWORD bytesRead;
     char buf[256];
 
-    if (ReadFile(hFile, buf, sizeof(buf), &bytesRead, NULL)) {
+    if (ReadFile(hFile, buf, sizeof(buf), &bytesRead, nullptr)) {
         sscanf_s(buf, "%ld\n%ld\n%ld\n%d\n%d\n%d\n%d\n%d\n%d", &matrixSize, &wWidth, &wHeight,
                  &bgColor.r, &bgColor.g, &bgColor.b, &lineColor.r, &lineColor.g, &lineColor.b);
     }
@@ -281,12 +293,13 @@ int main(int argc, char** argv) {
     /* Harcode show command num when use non-winapi entrypoint */
     int nCmdShow = SW_SHOW;
     /* Get handle */
-    HINSTANCE hThisInstance = GetModuleHandle(NULL);
+    HINSTANCE hThisInstance = GetModuleHandle(nullptr);
 
     /* The Window structure */
     wincl.hInstance = hThisInstance;
     wincl.lpszClassName = szWinClass;
     wincl.lpfnWndProc = WindowProcedure; /* This function is called by Windows */
+    wincl.hCursor = LoadCursor(nullptr, IDC_ARROW); // https://stackoverflow.com/questions/72285491
 
     if (argc > 2 && atoi(argv[2]) >= 0) {
         dbMode = atoi(argv[2]);
@@ -342,20 +355,26 @@ int main(int argc, char** argv) {
         NULL /* No Window Creation data */
     );
 
-    matrix = new int *[matrixSize];
-    for (int i = 0; i < matrixSize; i++) {
-        matrix[i] = new int[matrixSize];
-        for (int j = 0; j < matrixSize; j++) {
-            matrix[i][j] = 0;
-        }
-    }
+    HANDLE hFileMapping = CreateFileMapping(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, matrixSize * matrixSize,
+                                            szSharedMemoryName);
+    matrix = (LPTSTR)MapViewOfFile(hFileMapping, FILE_MAP_ALL_ACCESS, 0, 0, matrixSize * matrixSize);
 
-    srand(time(NULL));
+    // matrix = new int *[matrixSize];
+    // for (int i = 0; i < matrixSize; i++) {
+    //     matrix[i] = new int[matrixSize];
+    //     for (int j = 0; j < matrixSize; j++) {
+    //         matrix[i][j] = 0;
+    //     }
+    // }
+
+    srand(time(nullptr));
+
+    // synchMessage = RegisterWindowMessage("FieldUpdate");
 
     /* Make the window visible on the screen */
     ShowWindow(hwnd, nCmdShow);
     /* Run the message loop. It will run until GetMessage() returns 0 */
-    while ((bMessageOk = GetMessage(&message, NULL, 0, 0)) != 0) {
+    while ((bMessageOk = GetMessage(&message, nullptr, 0, 0)) != 0) {
         /* BOOL mb not only 1 or 0.
          * See msdn at https://msdn.microsoft.com/en-us/library/windows/desktop/ms644936(v=vs.85).aspx
          */
@@ -370,10 +389,10 @@ int main(int argc, char** argv) {
     }
 
     /* Cleanup stuff */
-    for (int i = 0; i < matrixSize; i++) {
-        delete[] matrix[i];
-    }
-    delete[] matrix;
+    // for (int i = 0; i < matrixSize; i++) {
+    //     delete[] matrix[i];
+    // }
+    // delete[] matrix;
 
     switch (dbMode) {
         case 1:
@@ -390,6 +409,9 @@ int main(int argc, char** argv) {
             write_native();
             break;
     }
+
+    UnmapViewOfFile(matrix);
+    CloseHandle(hFileMapping);
 
     DestroyWindow(hwnd);
     UnregisterClass(szWinClass, hThisInstance);
